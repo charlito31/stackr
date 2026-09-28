@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stackr</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.0/lame.min.js"></script>
+<style>
+:root{--bg:#f6f5f3;--card:#fff;--text:#1c1b1a;--sub:#6b6862;--accent:#c1543f;--accent2:#3f6b57;--line:#e4e1db;
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17161a;--card:#211f24;--text:#efece7;--sub:#a19d95;--accent:#e07a63;--accent2:#6fae90;--line:#333037;}}
+:root[data-theme="dark"]{--bg:#17161a;--card:#211f24;--text:#efece7;--sub:#a19d95;--accent:#e07a63;--accent2:#6fae90;--line:#333037;}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px);}
+body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+.wrap{max-width:680px;margin:0 auto;padding:20px 16px 40px;}
+h1{font-size:1.3rem;margin:4px 0 2px;} p.sub{color:var(--sub);font-size:.85rem;margin:0 0 18px;}
+.track{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px;}
+.trow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.tname{font-weight:600;flex:1;min-width:90px;}
+.ttype{font-size:.7rem;color:var(--sub);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 6px;}
+.status{font-size:.75rem;color:var(--sub);margin:6px 0;min-height:1em;}
+button{border:none;border-radius:8px;padding:8px 12px;font-size:.85rem;cursor:pointer;font-weight:600;}
+.btn-rec{background:var(--accent);color:#fff;} .btn-rec.active{background:#8a1f10;}
+.btn-up{background:var(--line);color:var(--text);}
+.btn-clear,.btn-del{background:transparent;color:var(--sub);padding:6px 8px;font-weight:400;}
+input[type=file]{display:none;}
+.fxrow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+.chip{background:var(--accent2);color:#fff;border-radius:16px;padding:6px 12px;font-size:.8rem;}
+.chip.add{background:transparent;color:var(--accent2);border:1px dashed var(--accent2);}
+.toprow{display:flex;gap:10px;margin:18px 0;flex-wrap:wrap;}
+.btn-main{background:var(--accent2);color:#fff;padding:12px 18px;border-radius:10px;font-size:.95rem;flex:1;}
+.hint{font-size:.75rem;color:var(--sub);}
+.addbar{display:flex;gap:8px;align-items:center;background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:12px;margin-bottom:16px;}
+select,.addbar input[type=text]{padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:.85rem;}
+.addbar input[type=text]{flex:1;min-width:0;}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10;}
+.modal.hidden{display:none;}
+.box{background:var(--card);border-radius:14px;padding:16px;width:100%;max-width:360px;max-height:80%;overflow:auto;}
+.box h3{margin:0 0 12px;font-size:1rem;}
+.mrow{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:.8rem;}
+.mrow label{min-width:74px;color:var(--sub);} .mrow input{flex:1;} .mrow .v{width:56px;text-align:right;color:var(--sub);font-size:.75rem;}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.pbtn{background:var(--bg);border:1px solid var(--line);color:var(--text);padding:12px 6px;}
+.mbtns{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;}
+.btn-rm{background:transparent;color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Stackr</h1>
+  <p class="sub">Record or upload each layer, stack FX on it, then mix down to MP3.</p>
+  <div id="tracks"></div>
+  <div class="addbar"><select id="newType"></select><input type="text" id="newName" placeholder="Layer name (optional)"><button class="btn-up" id="addLayerBtn">+ Add layer</button></div>
+  <div class="toprow"><button class="btn-main" id="playAll">▶ Play mix</button><button class="btn-main" id="exportBtn" style="background:var(--accent)">Export MP3</button></div>
+  <div class="hint" id="globalStatus"></div>
+</div>
+<div class="modal hidden" id="modal"><div class="box"><h3 id="mTitle"></h3><div id="mBody"></div>
+  <div class="mbtns"><button class="btn-rm" id="mRemove">Remove</button><button class="btn-main" id="mOk" style="flex:0 0 auto;padding:10px 22px">OK</button></div></div></div>
+<script>
+const P=(id,label,min,max,step,def,unit)=>({id,label,min,max,step,def,unit});
+const FX_DEFS={
+ Overdrive:[P('drive','Drive',1,100,1,40,'%'),P('tone','Tone',800,8000,100,4000,'Hz')],
+ Distortion:[P('drive','Drive',1,100,1,50,'%')],
+ 'Heavy Metal':[P('drive','Drive',1,100,1,95,'%'),P('tone','Tone',300,3000,50,1000,'Hz')],
+ Fuzz:[P('fuzz','Fuzz',1,100,1,70,'%'),P('tone','Tone',500,6000,100,2500,'Hz')],
+ Delay:[P('time','Time',50,1000,10,350,'ms'),P('feedback','Feedback',0,90,1,40,'%')],
+ Reverb:[P('decay','Decay',0.3,4,0.1,2,'s')],
+ Chorus:[P('rate','Rate',0.5,5,0.1,2.2,'Hz'),P('depth','Depth',1,10,0.5,6,'ms')],
+ Flanger:[P('rate','Rate',0.05,2,0.05,0.25,'Hz'),P('depth','Depth',0.5,5,0.1,2.5,'ms')],
+ Phaser:[P('rate','Rate',0.05,2,0.05,0.4,'Hz'),P('depth','Depth',200,1500,50,800,'Hz')],
+ Wah:[P('rate','Rate',0.2,4,0.1,1.3,'Hz'),P('range','Range',100,1500,50,600,'Hz'),P('center','Center',200,1500,50,500,'Hz')],
+ Tremolo:[P('rate','Rate',0.5,12,0.5,5,'Hz'),P('depth','Depth',0,100,1,70,'%')],
+ Compression:[P('threshold','Threshold',-60,0,1,-30,'dB'),P('ratio','Ratio',1,20,1,8,':1')],
+ 'Noise Gate':[P('threshold','Threshold',1,80,1,20,'%')],
+ EQ:[P('bass','Bass',-15,15,1,6,'dB'),P('mid','Mid',-15,15,1,-3,'dB'),P('treble','Treble',-15,15,1,6,'dB')],
+ Octaver:[P('shift','Shift',-12,12,1,-12,' st')],
+ 'Lo-Fi':[P('bits','Bit depth',2,8,1,4,'bit'),P('cutoff','Cutoff',800,8000,100,3200,'Hz')]
+};
+const HALF_MIX=['Delay','Reverb','Chorus','Flanger','Phaser','Octaver'];
+const TYPE_FX={
+ Vocal:['Reverb','Delay','Chorus','Flanger','Compression','EQ'],
+ Guitar:['Overdrive','Distortion','Heavy Metal','Fuzz','Delay','Reverb','Chorus','Flanger','Phaser','Wah','Tremolo','Compression','Noise Gate','EQ','Octaver'],
+ Bass:['Overdrive','Distortion','Fuzz','Wah','Compression','EQ','Octaver','Noise Gate'],
+ Drums:['Compression','Reverb','Lo-Fi','EQ','Noise Gate','Distortion'],
+ Keyboard:['Reverb','Delay','Chorus','Tremolo','Phaser','Compression','EQ'],
+ Harmony:['Reverb','Delay','Chorus','Flanger','EQ']
+};
+const DEFAULTS=[{name:'Vocal',type:'Vocal'},{name:'Bass',type:'Bass'},{name:'Drums',type:'Drums'},{name:'Keyboard',type:'Keyboard'},{name:'Guitars',type:'Guitar'},{name:'Harmony',type:'Harmony'}];
+let audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+let tracks=[],uid=0,fxUid=0,playing=false,playHandles=[];
+const $=id=>document.getElementById(id);
+const tracksEl=$('tracks'),globalStatus=$('globalStatus'),newType=$('newType');
+Object.keys(TYPE_FX).forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;newType.appendChild(o);});
+
+function makeTrack(name,type){return{id:'l'+(uid++),name,type,blob:null,buffer:null,recording:false,fx:[]};}
+function newFx(name){const params={};FX_DEFS[name].forEach(p=>params[p.id]=p.def);return{uid:'f'+(fxUid++),name,mix:HALF_MIX.includes(name)?50:100,params};}
+function getTrack(id){return tracks.find(t=>t.id===id);}
+function setStatus(t,msg){
+  const fxTxt=t.fx.length?t.fx.map(f=>f.name).join(' → '):'Clean (no FX)';
+  $('status-'+t.id).textContent=(msg||(t.buffer?t.buffer.duration.toFixed(1)+'s audio':'No audio yet'))+' · '+fxTxt;
+}
+function renderFx(t){
+  $('fx-'+t.id).innerHTML=t.fx.map(f=>`<button class="chip" data-role="chip" data-id="${t.id}" data-uid="${f.uid}">${f.name}</button>`).join('')
+    +`<button class="chip add" data-role="addfx" data-id="${t.id}">+ FX</button>`;
+  setStatus(t);
+}
+function renderTrack(t){
+  const div=document.createElement('div');div.className='track';div.id='track-'+t.id;
+  div.innerHTML=`<div class="trow"><div class="tname">${t.name} <span class="ttype">${t.type}</span></div>
+    <button class="btn-rec" data-role="rec" data-id="${t.id}">● Record</button>
+    <label class="btn-up" style="border-radius:8px;padding:8px 12px;font-size:.85rem;font-weight:600;cursor:pointer">Upload<input type="file" accept="audio/*" data-role="upload" data-id="${t.id}"></label>
+    <button class="btn-clear" data-role="clear" data-id="${t.id}">Clear</button><button class="btn-del" data-role="del" data-id="${t.id}">✕</button></div>
+    <div class="status" id="status-${t.id}"></div><div class="fxrow" id="fx-${t.id}"></div>`;
+  tracksEl.appendChild(div);renderFx(t);
+}
+DEFAULTS.forEach(d=>tracks.push(makeTrack(d.name,d.type)));tracks.forEach(renderTrack);
+
+$('addLayerBtn').addEventListener('click',()=>{
+  const type=newType.value,n=$('newName').value.trim(),c=tracks.filter(t=>t.type===type).length;
+  const t=makeTrack(n||(type+(c?' '+(c+1):'')),type);tracks.push(t);renderTrack(t);$('newName').value='';
+});
+
+// ---- modal ----
+let onClose=null,onRemove=null;
+function openModal(title,body,okText,removeFn){
+  $('mTitle').textContent=title;$('mBody').innerHTML='';$('mBody').appendChild(body);
+  $('mOk').textContent=okText||'OK';$('mRemove').style.display=removeFn?'':'none';onRemove=removeFn||null;
+  $('modal').classList.remove('hidden');
+}
+function closeModal(){$('modal').classList.add('hidden');}
+$('mOk').addEventListener('click',closeModal);
+$('modal').addEventListener('click',e=>{if(e.target===$('modal'))closeModal();});
+$('mRemove').addEventListener('click',()=>{if(onRemove)onRemove();closeModal();});
+
+function openPicker(t){
+  const body=document.createElement('div');body.className='pgrid';
+  const draw=()=>{body.innerHTML='';TYPE_FX[t.type].forEach(name=>{
+    const c=t.fx.filter(f=>f.name===name).length;
+    const b=document.createElement('button');b.className='pbtn';b.textContent=name+(c?' ×'+c:'');
+    b.addEventListener('click',()=>{t.fx.push(newFx(name));renderFx(t);draw();});body.appendChild(b);});};
+  draw();openModal('Add FX · '+t.name,body,'Done',null);
+}
+function openEditor(t,fx){
+  const body=document.createElement('div');
+  const rows=FX_DEFS[fx.name].map(p=>({id:p.id,label:p.label,min:p.min,max:p.max,step:p.step,unit:p.unit,get:()=>fx.params[p.id],set:v=>fx.params[p.id]=v}));
+  rows.push({id:'mix',label:'Mix',min:0,max:100,step:1,unit:'%',get:()=>fx.mix,set:v=>fx.mix=v});
+  rows.forEach(r=>{
+    const d=document.createElement('div');d.className='mrow';
+    d.innerHTML=`<label>${r.label}</label><input type="range" min="${r.min}" max="${r.max}" step="${r.step}" value="${r.get()}"><span class="v">${r.get()}${r.unit}</span>`;
+    d.querySelector('input').addEventListener('input',e=>{const v=parseFloat(e.target.value);r.set(v);d.querySelector('.v').textContent=v+r.unit;});
+    body.appendChild(d);
+  });
+  openModal(fx.name+' · '+t.name,body,'OK',()=>{t.fx=t.fx.filter(f=>f.uid!==fx.uid);renderFx(t);});
+}
+
+tracksEl.addEventListener('click',e=>{
+  const btn=e.target.closest('[data-role]');if(!btn)return;
+  const t=getTrack(btn.dataset.id);if(!t)return;const r=btn.dataset.role;
+  if(r==='rec')toggleRecord(t,btn);
+  else if(r==='clear'){t.blob=null;t.buffer=null;setStatus(t);}
+  else if(r==='del'){tracks=tracks.filter(x=>x.id!==t.id);$('track-'+t.id).remove();}
+  else if(r==='addfx')openPicker(t);
+  else if(r==='chip')openEditor(t,t.fx.find(f=>f.uid===btn.dataset.uid));
+});
+tracksEl.addEventListener('change',async e=>{
+  if(e.target.dataset.role!=='upload')return;
+  const t=getTrack(e.target.dataset.id),file=e.target.files[0];if(!file)return;
+  setStatus(t,'Loading upload…');
+  try{t.buffer=await audioCtx.decodeAudioData((await file.arrayBuffer()).slice(0));t.blob=file;setStatus(t);}
+  catch(err){setStatus(t,'Could not read that file');}
+});
+async function toggleRecord(t,btn){
+  if(t.recording){t.mediaRecorder.stop();return;}
+  let stream;
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){setStatus(t,'Mic needs a secure (https) page — this page was opened from a local file or an unsupported view');return;}
+  try{stream=await navigator.mediaDevices.getUserMedia({audio:true});}
+  catch(err){setStatus(t,err.name==='NotAllowedError'?'Mic blocked — allow Microphone for this site in your browser settings':'Mic error: '+err.name);return;}
+  t.chunks=[];const mr=new MediaRecorder(stream);t.mediaRecorder=mr;
+  mr.ondataavailable=ev=>{if(ev.data.size>0)t.chunks.push(ev.data);};
+  mr.onstop=async()=>{
+    stream.getTracks().forEach(x=>x.stop());t.recording=false;btn.textContent='● Record';btn.classList.remove('active');
+    const blob=new Blob(t.chunks,{type:'audio/webm'});setStatus(t,'Processing…');
+    try{t.buffer=await audioCtx.decodeAudioData(await blob.arrayBuffer());t.blob=blob;setStatus(t);}catch(err){setStatus(t,'Recording failed to decode');}
+  };
+  mr.start();t.recording=true;btn.textContent='■ Stop';btn.classList.add('active');setStatus(t,'Recording…');
+}
+
+// ---- FX engine ----
+function makeCurve(a){const k=a*100+1,n=8192,c=new Float32Array(n);for(let i=0;i<n;i++){const x=i*2/n-1;c[i]=(3+k)*x*20*(Math.PI/180)/(Math.PI+k*Math.abs(x));}return c;}
+function impulse(ctx,d){const r=ctx.sampleRate,len=Math.floor(r*d),b=ctx.createBuffer(2,len,r);for(let ch=0;ch<2;ch++){const a=b.getChannelData(ch);for(let i=0;i<len;i++)a[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.5);}return b;}
+function buildEffect(ctx,name,p){
+  const G=()=>ctx.createGain(),F=t=>{const f=ctx.createBiquadFilter();f.type=t;return f;};
+  switch(name){
+    case 'Reverb':{const c=ctx.createConvolver();c.buffer=impulse(ctx,p.decay);return{input:c,output:c,lfos:[]};}
+    case 'Flanger':case 'Chorus':{const d=ctx.createDelay(0.06),ds=p.depth/1000;d.delayTime.value=Math.max(0.002,ds*1.6);
+      const lfo=ctx.createOscillator();lfo.frequency.value=p.rate;const lg=G();lg.gain.value=ds;lfo.connect(lg);lg.connect(d.delayTime);return{input:d,output:d,lfos:[lfo]};}
+    case 'Distortion':{const w=ctx.createWaveShaper();w.curve=makeCurve(p.drive/100);w.oversample='4x';return{input:w,output:w,lfos:[]};}
+    case 'Overdrive':{const w=ctx.createWaveShaper();w.curve=makeCurve(p.drive/200);w.oversample='4x';const l=F('lowpass');l.frequency.value=p.tone;w.connect(l);return{input:w,output:l,lfos:[]};}
+    case 'Heavy Metal':{const w=ctx.createWaveShaper();w.curve=makeCurve(p.drive/100);w.oversample='4x';const b=F('bandpass');b.frequency.value=p.tone;b.Q.value=1;w.connect(b);return{input:w,output:b,lfos:[]};}
+    case 'Fuzz':{const pre=G();pre.gain.value=1+p.fuzz/2;const w=ctx.createWaveShaper(),c=new Float32Array(1024);
+      for(let i=0;i<1024;i++){const x=i/1023*2-1;c[i]=Math.tanh(4*x+0.25)-Math.tanh(0.25);}w.curve=c;
+      const l=F('lowpass');l.frequency.value=p.tone;const o=G();o.gain.value=0.6;pre.connect(w);w.connect(l);l.connect(o);return{input:pre,output:o,lfos:[]};}
+    case 'Delay':{const d=ctx.createDelay(1.5);d.delayTime.value=p.time/1000;const fb=G();fb.gain.value=p.feedback/100;d.connect(fb);fb.connect(d);return{input:d,output:d,lfos:[]};}
+    case 'Tremolo':{const dep=p.depth/100,g=G();g.gain.value=1-dep/2;const lfo=ctx.createOscillator();lfo.frequency.value=p.rate;const lg=G();lg.gain.value=dep/2;lfo.connect(lg);lg.connect(g.gain);return{input:g,output:g,lfos:[lfo]};}
+    case 'Wah':{const f=F('bandpass');f.Q.value=6;f.frequency.value=p.center;const lfo=ctx.createOscillator();lfo.frequency.value=p.rate;const lg=G();lg.gain.value=p.range;lfo.connect(lg);lg.connect(f.frequency);return{input:f,output:f,lfos:[lfo]};}
+    case 'Phaser':{let prev=null,first=null;const lfo=ctx.createOscillator();lfo.frequency.value=p.rate;const lg=G();lg.gain.value=p.depth;lfo.connect(lg);
+      for(let i=0;i<4;i++){const a=F('allpass');a.frequency.value=p.depth;lg.connect(a.frequency);if(prev)prev.connect(a);else first=a;prev=a;}return{input:first,output:prev,lfos:[lfo]};}
+    case 'Compression':{const c=ctx.createDynamicsCompressor();c.threshold.value=p.threshold;c.ratio.value=p.ratio;return{input:c,output:c,lfos:[]};}
+    case 'Lo-Fi':{const w=ctx.createWaveShaper(),s=Math.pow(2,p.bits)/2,c=new Float32Array(257);for(let i=0;i<257;i++){const x=i/256*2-1;c[i]=Math.round(x*s)/s;}w.curve=c;const l=F('lowpass');l.frequency.value=p.cutoff;w.connect(l);return{input:w,output:l,lfos:[]};}
+    case 'EQ':{const lo=F('lowshelf');lo.frequency.value=200;lo.gain.value=p.bass;const m=F('peaking');m.frequency.value=1000;m.Q.value=1;m.gain.value=p.mid;const hi=F('highshelf');hi.frequency.value=4000;hi.gain.value=p.treble;lo.connect(m);m.connect(hi);return{input:lo,output:hi,lfos:[]};}
+    case 'Noise Gate':{const w=ctx.createWaveShaper(),c=new Float32Array(1025),t=p.threshold/100;for(let i=0;i<1025;i++){const x=i/1024*2-1,a=Math.abs(x);c[i]=a>=t?x:x*Math.pow(a/t,2);}w.curve=c;return{input:w,output:w,lfos:[]};}
+    case 'Octaver':{const slope=1-Math.pow(2,p.shift/12);if(Math.abs(slope)<0.001){const g=G();return{input:g,output:g,lfos:[]};}
+      const D=0.06,T=D/Math.abs(slope),r=ctx.sampleRate,L=Math.max(2,Math.round(T*r)),rb=ctx.createBuffer(1,L,r),wb=ctx.createBuffer(1,L,r),rd=rb.getChannelData(0),wd=wb.getChannelData(0);
+      for(let i=0;i<L;i++){const ph=i/L;rd[i]=D*(slope>0?ph:1-ph);const s=Math.sin(Math.PI*ph);wd[i]=s*s;}
+      const inp=G(),out=G(),taps=[];
+      [0,0.5].forEach(off=>{const dl=ctx.createDelay(0.1);dl.delayTime.value=0;const wg=G();wg.gain.value=0;
+        const rs=ctx.createBufferSource(),ws=ctx.createBufferSource();rs.buffer=rb;ws.buffer=wb;rs.loop=ws.loop=true;rs.connect(dl.delayTime);ws.connect(wg.gain);
+        inp.connect(dl);dl.connect(wg);wg.connect(out);
+        taps.push({start:(w=0)=>{rs.start(w,off*T);ws.start(w,off*T);},stop:()=>{try{rs.stop();}catch(e){}try{ws.stop();}catch(e){}}});});
+      return{input:inp,output:out,lfos:taps};}
+    default:{const g=G();return{input:g,output:g,lfos:[]};}
+  }
+}
+function buildChain(ctx,t){
+  let cur=null,last=null,lfos=[];
+  t.fx.forEach(f=>{
+    const e=buildEffect(ctx,f.name,f.params);lfos.push(...e.lfos);
+    const m=f.mix/100,dry=ctx.createGain(),wet=ctx.createGain(),sIn=ctx.createGain(),sOut=ctx.createGain();
+    dry.gain.value=1-m;wet.gain.value=m;
+    sIn.connect(dry);dry.connect(sOut);sIn.connect(e.input);e.output.connect(wet);wet.connect(sOut);
+    if(cur===null)cur=sIn;else last.connect(sIn);last=sOut;
+  });
+  if(cur===null){const g=ctx.createGain();cur=g;last=g;}
+  return{input:cur,output:last,lfos};
+}
+const activeTracks=()=>tracks.filter(t=>t.buffer);
+
+$('playAll').addEventListener('click',()=>{
+  const btn=$('playAll');
+  if(playing){playHandles.forEach(h=>{try{h.src.stop();}catch(e){}h.lfos.forEach(l=>{try{l.stop();}catch(e){}});});playHandles=[];playing=false;btn.textContent='▶ Play mix';return;}
+  const act=activeTracks();if(!act.length){globalStatus.textContent='Record or upload at least one layer first.';return;}
+  if(audioCtx.state==='suspended')audioCtx.resume();
+  const at=audioCtx.currentTime+0.05;
+  playHandles=act.map(t=>{const src=audioCtx.createBufferSource();src.buffer=t.buffer;const ch=buildChain(audioCtx,t);
+    src.connect(ch.input);ch.output.connect(audioCtx.destination);ch.lfos.forEach(l=>l.start(at));src.start(at);return{src,lfos:ch.lfos};});
+  playing=true;btn.textContent='■ Stop';
+  const longest=Math.max(...act.map(t=>t.buffer.duration));
+  setTimeout(()=>{if(playing){playing=false;btn.textContent='▶ Play mix';}},longest*1000+3000);
+});
+
+$('exportBtn').addEventListener('click',async()=>{
+  const act=activeTracks();if(!act.length){globalStatus.textContent='Nothing to export yet.';return;}
+  globalStatus.textContent='Mixing down…';
+  const sr=audioCtx.sampleRate,len=Math.ceil((Math.max(...act.map(t=>t.buffer.duration))+3)*sr);
+  const off=new OfflineAudioContext(2,len,sr);
+  act.forEach(t=>{const src=off.createBufferSource();src.buffer=t.buffer;const ch=buildChain(off,t);
+    src.connect(ch.input);ch.output.connect(off.destination);ch.lfos.forEach(l=>l.start(0));src.start(0);});
+  const rendered=await off.startRendering();
+  globalStatus.textContent='Encoding MP3…';
+  if(typeof lamejs==='undefined'){globalStatus.textContent='MP3 encoder failed to load — check your connection and try again.';return;}
+  const f2i=a=>{const o=new Int16Array(a.length);for(let i=0;i<a.length;i++){const s=Math.max(-1,Math.min(1,a[i]));o[i]=s<0?s*0x8000:s*0x7FFF;}return o;};
+  const l16=f2i(rendered.getChannelData(0)),r16=f2i(rendered.numberOfChannels>1?rendered.getChannelData(1):rendered.getChannelData(0));
+  const enc=new lamejs.Mp3Encoder(2,sr,160),data=[];
+  for(let i=0;i<l16.length;i+=1152){const b=enc.encodeBuffer(l16.subarray(i,i+1152),r16.subarray(i,i+1152));if(b.length)data.push(b);}
+  const end=enc.flush();if(end.length)data.push(end);
+  const blob=new Blob(data,{type:'audio/mp3'});
+  const dl=window.claude?await window.claude.use('downloads'):null;
+  if(dl){const res=await dl.save({filename:'stackr-mix.mp3',data:await blob.arrayBuffer()});globalStatus.textContent=res?'Saved stackr-mix.mp3':'Save was cancelled.';}
+  else{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='stackr-mix.mp3';a.click();globalStatus.textContent='Downloaded stackr-mix.mp3';}
+});
+</script>
+</body>
+</html>
