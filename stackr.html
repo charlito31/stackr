@@ -43,6 +43,10 @@ select,.addbar input[type=text]{padding:8px;border-radius:8px;border:1px solid v
 .pbtn{background:var(--bg);border:1px solid var(--line);color:var(--text);padding:12px 6px;}
 .mbtns{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;}
 .btn-rm{background:transparent;color:var(--accent);}
+.dgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
+.dpad{aspect-ratio:1.15;background:var(--bg);border:1px solid var(--line);color:var(--text);font-size:.8rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;touch-action:manipulation;}
+.dpad small{color:var(--sub);font-weight:500;font-size:.65rem;}
+.dpad.hit{background:var(--accent);color:#fff;border-color:var(--accent);}
 </style>
 </head>
 <body>
@@ -109,6 +113,7 @@ function renderTrack(t){
   div.innerHTML=`<div class="trow"><div class="tname">${t.name} <span class="ttype">${t.type}</span></div>
     <button class="btn-rec" data-role="rec" data-id="${t.id}">● Record</button>
     <label class="btn-up" style="border-radius:8px;padding:8px 12px;font-size:.85rem;font-weight:600;cursor:pointer">Upload<input type="file" accept="audio/*" data-role="upload" data-id="${t.id}"></label>
+    ${t.type==='Drums'?`<button class="btn-up" data-role="pad" data-id="${t.id}">🥁 Pad</button>`:''}
     <button class="btn-clear" data-role="clear" data-id="${t.id}">Clear</button><button class="btn-del" data-role="del" data-id="${t.id}">✕</button></div>
     <div class="status" id="status-${t.id}"></div><div class="fxrow" id="fx-${t.id}"></div>`;
   tracksEl.appendChild(div);renderFx(t);
@@ -127,7 +132,8 @@ function openModal(title,body,okText,removeFn){
   $('mOk').textContent=okText||'OK';$('mRemove').style.display=removeFn?'':'none';onRemove=removeFn||null;
   $('modal').classList.remove('hidden');
 }
-function closeModal(){$('modal').classList.add('hidden');}
+let onCloseCb=null;
+function closeModal(){$('modal').classList.add('hidden');if(onCloseCb){const f=onCloseCb;onCloseCb=null;f();}}
 $('mOk').addEventListener('click',closeModal);
 $('modal').addEventListener('click',e=>{if(e.target===$('modal'))closeModal();});
 $('mRemove').addEventListener('click',()=>{if(onRemove)onRemove();closeModal();});
@@ -160,6 +166,7 @@ tracksEl.addEventListener('click',e=>{
   else if(r==='clear'){t.blob=null;t.buffer=null;setStatus(t);}
   else if(r==='del'){tracks=tracks.filter(x=>x.id!==t.id);$('track-'+t.id).remove();}
   else if(r==='addfx')openPicker(t);
+  else if(r==='pad')openPad(t);
   else if(r==='chip')openEditor(t,t.fx.find(f=>f.uid===btn.dataset.uid));
 });
 tracksEl.addEventListener('change',async e=>{
@@ -233,6 +240,76 @@ function buildChain(ctx,t){
   if(cur===null){const g=ctx.createGain();cur=g;last=g;}
   return{input:cur,output:last,lfos};
 }
+// ---- Drum pad ----
+const PAD_NAMES=[['Kick','Q'],['Snare','W'],['Clap','E'],['Closed Hat','A'],['Open Hat','S'],['Crash','D'],['Tom Low','Z'],['Tom Mid','X'],['Tom High','C']];
+let padMaster=null,padNoise=null;
+function makeNoise(ctx){const b=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate),d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;return b;}
+function ensurePad(){if(padMaster)return;padMaster=audioCtx.createGain();const c=audioCtx.createDynamicsCompressor();padMaster.connect(c);c.connect(audioCtx.destination);padNoise=makeNoise(audioCtx);}
+function drumHit(ctx,dest,name,t,tune,decay,nb){
+  const noise=(o,type,freq,peak,dur,q)=>{const st=t+o,s=ctx.createBufferSource();s.buffer=nb;s.loop=true;
+    const f=ctx.createBiquadFilter();f.type=type;f.frequency.value=freq;if(q)f.Q.value=q;const g=ctx.createGain();
+    g.gain.setValueAtTime(0.0001,st);g.gain.exponentialRampToValueAtTime(peak,st+0.003);g.gain.exponentialRampToValueAtTime(0.0001,st+dur*decay);
+    s.connect(f);f.connect(g);g.connect(dest);s.start(st,Math.random());s.stop(st+dur*decay+0.05);};
+  const tone=(f0,f1,peak,dur,type)=>{const o=ctx.createOscillator();o.type=type||'sine';
+    o.frequency.setValueAtTime(f0*tune,t);o.frequency.exponentialRampToValueAtTime(Math.max(20,f1*tune),t+0.12);
+    const g=ctx.createGain();g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(peak,t+0.003);g.gain.exponentialRampToValueAtTime(0.0001,t+dur*decay);
+    o.connect(g);g.connect(dest);o.start(t);o.stop(t+dur*decay+0.05);};
+  switch(name){
+    case 'Kick':tone(160,45,1,0.5);break;
+    case 'Snare':noise(0,'highpass',1200,0.7,0.22);tone(220,120,0.5,0.12,'triangle');break;
+    case 'Clap':[0,0.012,0.024].forEach(o=>noise(o,'bandpass',1500,0.5,0.03,1.2));noise(0.036,'bandpass',1500,0.6,0.22,1.2);break;
+    case 'Closed Hat':noise(0,'highpass',7000,0.45,0.05);break;
+    case 'Open Hat':noise(0,'highpass',7000,0.45,0.4);break;
+    case 'Crash':noise(0,'highpass',5000,0.5,1.4);break;
+    case 'Tom Low':tone(120,70,0.9,0.5);break;
+    case 'Tom Mid':tone(170,100,0.9,0.45);break;
+    case 'Tom High':tone(230,140,0.9,0.4);break;
+  }
+}
+function openPad(t){
+  if(audioCtx.state==='suspended')audioCtx.resume();
+  const other=tracks.filter(x=>x.id!==t.id&&x.buffer);
+  let hits=[],rec=false,startAt=0,backing=[];
+  const body=document.createElement('div');
+  body.innerHTML=`<div class="dgrid">${PAD_NAMES.map((p,i)=>`<button class="dpad" data-i="${i}">${p[0]}<small>${p[1]}</small></button>`).join('')}</div>
+    <div class="mrow"><button class="btn-rec" id="padRec">● Rec take</button><span class="v" id="padInfo" style="width:auto;flex:1;text-align:left">Tap pads, or record a take into ${t.name}.</span></div>
+    <div class="mrow"><label>Volume</label><input type="range" id="pVol" min="0" max="100" value="80"></div>
+    <div class="mrow"><label>Tune</label><input type="range" id="pTune" min="50" max="200" value="100"></div>
+    <div class="mrow"><label>Decay</label><input type="range" id="pDecay" min="50" max="200" value="100"></div>
+    ${other.length?'<label class="mrow"><input type="checkbox" id="pAlong" checked style="flex:none"> Play other layers along</label>':''}`;
+  const q=s=>body.querySelector(s),pads=[...body.querySelectorAll('.dpad')],info=q('#padInfo'),recBtn=q('#padRec');
+  const stopBacking=()=>{backing.forEach(h=>{try{h.src.stop();}catch(e){}h.lfos.forEach(l=>{try{l.stop();}catch(e){}});});backing=[];};
+  const hit=i=>{
+    ensurePad();const now=audioCtx.currentTime;
+    const tune=q('#pTune').value/100,decay=q('#pDecay').value/100,vol=q('#pVol').value/100;
+    padMaster.gain.value=vol;drumHit(audioCtx,padMaster,PAD_NAMES[i][0],now,tune,decay,padNoise);
+    if(rec)hits.push({i,t:Math.max(0,now-startAt),tune,decay,vol});
+    pads[i].classList.add('hit');setTimeout(()=>pads[i].classList.remove('hit'),110);
+  };
+  pads.forEach((b,i)=>b.addEventListener('pointerdown',e=>{e.preventDefault();hit(i);}));
+  const keyH=e=>{if(e.repeat)return;const i=PAD_NAMES.findIndex(p=>p[1]===e.key.toUpperCase());if(i>=0)hit(i);};
+  document.addEventListener('keydown',keyH);
+  const stopTake=async()=>{
+    rec=false;recBtn.textContent='● Rec take';recBtn.classList.remove('active');stopBacking();
+    if(!hits.length){info.textContent='No hits recorded.';return;}
+    info.textContent='Rendering…';
+    const sr=audioCtx.sampleRate,last=Math.max(...hits.map(h=>h.t)),off=new OfflineAudioContext(2,Math.ceil((last+2.5)*sr),sr);
+    const nb=makeNoise(off),comp=off.createDynamicsCompressor();comp.connect(off.destination);
+    hits.forEach(h=>{const g=off.createGain();g.gain.value=h.vol;g.connect(comp);drumHit(off,g,PAD_NAMES[h.i][0],h.t,h.tune,h.decay,nb);});
+    t.buffer=await off.startRendering();t.blob=null;setStatus(t);
+    info.textContent='Saved '+t.buffer.duration.toFixed(1)+'s take ('+hits.length+' hits) to '+t.name+'.';
+  };
+  recBtn.addEventListener('click',()=>{
+    if(rec){stopTake();return;}
+    hits=[];startAt=audioCtx.currentTime+0.05;rec=true;recBtn.textContent='■ Stop';recBtn.classList.add('active');info.textContent='Recording… play the pads';
+    const al=q('#pAlong');
+    if(al&&al.checked)backing=other.map(x=>{const src=audioCtx.createBufferSource();src.buffer=x.buffer;const ch=buildChain(audioCtx,x);
+      src.connect(ch.input);ch.output.connect(audioCtx.destination);ch.lfos.forEach(l=>l.start(startAt));src.start(startAt);return{src,lfos:ch.lfos};});
+  });
+  openModal('Drum pad · '+t.name,body,'Done',null);
+  onCloseCb=()=>{if(rec)stopTake();document.removeEventListener('keydown',keyH);};
+}
+
 const activeTracks=()=>tracks.filter(t=>t.buffer);
 
 $('playAll').addEventListener('click',()=>{
